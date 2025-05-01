@@ -1,51 +1,285 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HLS Live Stream Player</title>
+    <title>লাইভ ভিডিও প্লেয়ার</title>
     <style>
         body {
             font-family: sans-serif;
-            margin: 0;
             background-color: #f0f0f0;
+            margin: 0;
+            padding: 0;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
+            justify-content: center;
+            min-height: 100vh;
         }
-        .player-container {
-            width: 80%; /* Adjust as needed */
-            max-width: 800px;
+        #player-container {
+            background-color: #000;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+            max-width: 90%; /* Ensure container doesn't overflow */
         }
-        video {
+        #videoPlayer {
             width: 100%;
-            height: auto;
-            background-color: black;
+            max-width: 854px; /* 480p width, adjust as needed */
+            height: auto; /* Maintain aspect ratio */
+            display: block; /* Remove extra space below video */
+            background-color: #111; /* Placeholder background */
         }
+        #controls {
+            margin-top: 15px;
+            text-align: center;
+        }
+        #controls label {
+            margin-right: 10px;
+            color: #333;
+        }
+        #controls select {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-processing {
+            background-color: #ffc107; /* Amber */
+            color: #333;
+        }
+        .status-error {
+            background-color: #f44336; /* Red */
+            color: white;
+        }
+        .status-ready {
+            background-color: #4CAF50; /* Green */
+            color: white;
+        }
+         /* Hide default controls if truly needed (uncomment) */
+        /*
+        video::-webkit-media-controls {
+           display: none !important;
+        }
+        video::-moz-media-controls {
+            display: none !important;
+        }
+        video::--media-controls {
+           display: none !important;
+        }
+        video::-webkit-media-controls-panel {
+            display: none!important;
+        }
+        video::-webkit-media-controls-play-button {
+            display: none!important;
+        }
+        video::-webkit-media-controls-volume-slider-container {
+            display: none!important;
+        }
+        video::-webkit-media-controls-current-time-display {
+            display: none!important;
+        }
+        video::-webkit-media-controls-time-remaining-display {
+            display: none!important;
+        }
+        video::-webkit-media-controls-timeline {
+            display: none!important;
+        }
+        video::-webkit-media-controls-fullscreen-button {
+            display: none!important;
+        }
+        */
     </style>
 </head>
 <body>
-    <div class="player-container">
-        <video id="hls-player" controls></video>
+
+    <h1>লাইভ ভিডিও লুপ</h1>
+
+    <div id="player-container">
+        <video id="videoPlayer" playsinline muted controls>
+             আপনার ব্রাউজার ভিডিও ট্যাগ সমর্থন করে না।
+        </video>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <div id="controls">
+        <label for="resolutionSelector">রেজোলিউশন:</label>
+        <select id="resolutionSelector">
+            {% for res in resolutions %}
+                <option value="{{ res }}" {% if res == '720p' %}selected{% endif %}>{{ res }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="status">
+        {% if processing_error %}
+            <div class="status-error">ত্রুটি: {{ processing_error }}</div>
+        {% elif not processing_complete %}
+            <div class="status-processing">ভিডিও প্রস্তুত করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।</div>
+        {% else %}
+            <div class="status-ready">ভিডিও প্রস্তুত। প্লেয়ার লোড হচ্ছে...</div>
+        {% endif %}
+    </div>
+
     <script>
-        const video = document.getElementById('hls-player');
-        if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource('/stream/master.m3u8'); // Ensure this matches your route
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play();
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = '/stream/master.m3u8';
-            video.addEventListener('loadedmetadata', function() {
-                video.play();
-            });
+        const videoPlayer = document.getElementById('videoPlayer');
+        const resolutionSelector = document.getElementById('resolutionSelector');
+        const statusDiv = document.getElementById('status');
+
+        // সার্ভার থেকে ভিডিও ডেটা পান (JSON হিসাবে এমবেড করা)
+        const videoData = {{ video_data | tojson | safe }};
+        const videoIds = {{ video_ids | tojson | safe }};
+        const resolutions = {{ resolutions | tojson | safe }};
+
+        let currentVideoIndex = 0;
+        let currentResolution = resolutionSelector.value; // Initialize with selected value
+        let videoReady = {{ processing_complete | tojson }};
+        let serverError = {{ processing_error | tojson | safe }};
+
+        function getVideoUrl(videoId, resolution) {
+            if (videoData && videoData[videoId] && videoData[videoId][resolution]) {
+                return videoData[videoId][resolution];
+            }
+            console.error(`ভিডিও URL পাওয়া যায়নি: ID=${videoId}, Resolution=${resolution}`);
+            return null; // URL না পাওয়া গেলে null রিটার্ন করুন
         }
+
+        function loadVideo(videoId, resolution) {
+            const url = getVideoUrl(videoId, resolution);
+            if (!url) {
+                statusDiv.innerHTML = `<div class="status-error">ত্রুটি: ভিডিও '${videoId}' (${resolution}) লোড করা যাচ্ছে না। URL পাওয়া যায়নি।</div>`;
+                return; // লোড করা সম্ভব না হলে ফাংশন থেকে বের হয়ে যান
+            }
+
+            const currentTime = videoPlayer.currentTime; // বর্তমান প্লেব্যাকের সময় সংরক্ষণ করুন
+            const isPaused = videoPlayer.paused; // ভিডিও পজ করা ছিল কিনা তা মনে রাখুন
+
+            console.log(`লোড হচ্ছে: ${url}`);
+            videoPlayer.src = url;
+            videoPlayer.load(); // নতুন সোর্স লোড করুন
+
+            // মেটাডেটা লোড হওয়ার পরে আগের সময়ে ফিরে যান
+            videoPlayer.addEventListener('loadedmetadata', () => {
+                console.log("মেটাডেটা লোড হয়েছে, সময় সেট করা হচ্ছে:", currentTime);
+                videoPlayer.currentTime = currentTime;
+                if (!isPaused || videoPlayer.autoplay) { // যদি ভিডিও আগে চলছিল বা autoplay সেট করা থাকে
+                     // Play() একটি promise রিটার্ন করে, এটি হ্যান্ডেল করা ভালো অভ্যাস
+                     const playPromise = videoPlayer.play();
+                     if (playPromise !== undefined) {
+                         playPromise.catch(error => {
+                             console.error("ভিডিও প্লে করতে ত্রুটি:", error);
+                             // Autoplay ব্লকড হতে পারে, ব্যবহারকারীর ইন্টারঅ্যাকশন প্রয়োজন হতে পারে
+                             // statusDiv.innerHTML = `<div class="status-error">ভিডিও প্লে করতে ক্লিক করুন।</div>`;
+                         });
+                     }
+                }
+            }, { once: true }); // একবার চালানোর জন্য listener
+
+             videoPlayer.addEventListener('error', (e) => {
+                 console.error("ভিডিও লোড/প্লেব্যাক ত্রুটি:", videoPlayer.error);
+                 statusDiv.innerHTML = `<div class="status-error">ভিডিও লোড করতে সমস্যা হয়েছে। (${videoPlayer.error?.message || 'Unknown error'})</div>`;
+             });
+        }
+
+        function playNextVideo() {
+            if (!videoReady || videoIds.length === 0) {
+                console.log("ভিডিও প্রস্তুত নয় বা কোনো ভিডিও আইডি নেই।");
+                return;
+            }
+            currentVideoIndex = (currentVideoIndex + 1) % videoIds.length;
+            const nextVideoId = videoIds[currentVideoIndex];
+            console.log(`পরবর্তী ভিডিও প্লে হচ্ছে: Index=${currentVideoIndex}, ID=${nextVideoId}, Resolution=${currentResolution}`);
+            loadVideo(nextVideoId, currentResolution);
+        }
+
+        // --- Event Listeners ---
+
+        // ভিডিও শেষ হলে পরেরটি চালান
+        videoPlayer.addEventListener('ended', () => {
+            console.log("ভিডিও শেষ হয়েছে, পরবর্তী ভিডিও লোড হচ্ছে...");
+            playNextVideo();
+        });
+
+        // রেজোলিউশন পরিবর্তন হলে
+        resolutionSelector.addEventListener('change', () => {
+            currentResolution = resolutionSelector.value;
+            console.log(`রেজোলিউশন পরিবর্তিত হয়েছে: ${currentResolution}`);
+            if (videoReady && videoIds.length > 0) {
+                 const currentVideoId = videoIds[currentVideoIndex];
+                 loadVideo(currentVideoId, currentResolution);
+             }
+        });
+
+        // --- প্রাথমিক লোড এবং স্ট্যাটাস চেক ---
+
+        function checkServerStatus() {
+             // যদি শুরুতেই ভিডিও প্রস্তুত থাকে, তবে প্রথম ভিডিও লোড করুন
+            if (videoReady && videoIds.length > 0) {
+                statusDiv.innerHTML = '<div class="status-ready">ভিডিও প্রস্তুত। প্লেয়ার চালু হচ্ছে...</div>';
+                const initialVideoId = videoIds[currentVideoIndex];
+                loadVideo(initialVideoId, currentResolution);
+                // Autoplay করার চেষ্টা করুন (মিউট করা থাকলে সাধারণত কাজ করে)
+                videoPlayer.autoplay = true;
+                videoPlayer.muted = true; // Autoplay নিশ্চিত করতে মিউট করুন
+                 const playPromise = videoPlayer.play();
+                 if (playPromise !== undefined) {
+                     playPromise.catch(error => {
+                         console.warn("Autoplay ব্লক করা হয়েছে:", error);
+                         statusDiv.innerHTML = `<div class="status-ready">ভিডিও প্রস্তুত। প্লে করতে ক্লিক করুন।</div>`;
+                         // ব্যবহারকারীকে প্লে বাটনে ক্লিক করতে উৎসাহিত করুন
+                         // আপনি এখানে একটি কাস্টম প্লে বাটন দেখাতে পারেন
+                     });
+                 }
+            } else if (serverError) {
+                 statusDiv.innerHTML = `<div class="status-error">ত্রুটি: ${serverError}</div>`;
+            } else {
+                 // যদি প্রসেসিং শেষ না হয়, তবে পোলিং শুরু করুন
+                 statusDiv.innerHTML = '<div class="status-processing">ভিডিও প্রস্তুত করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।</div>';
+                 const intervalId = setInterval(() => {
+                     fetch('/status')
+                         .then(response => response.json())
+                         .then(data => {
+                             if (data.processing_error) {
+                                 clearInterval(intervalId);
+                                 serverError = data.processing_error;
+                                 statusDiv.innerHTML = `<div class="status-error">ত্রুটি: ${serverError}</div>`;
+                                 videoReady = false;
+                             } else if (data.processing_complete) {
+                                 clearInterval(intervalId);
+                                 videoReady = true;
+                                 // সার্ভার থেকে আপডেটেড video_data পান (যদি প্রয়োজন হয়)
+                                 // fetch('/') ব্যবহার করে পৃষ্ঠা পুনরায় লোড না করে ডেটা আপডেট করা একটি উন্নত বিকল্প হতে পারে।
+                                 // সহজ করার জন্য, এখানে ধরে নিচ্ছি video_data ইতিমধ্যেই ঠিক আছে।
+                                 window.location.reload(); // সহজ উপায়: পৃষ্ঠা পুনরায় লোড করুন যখন প্রস্তুত
+                                 // বিকল্প: পৃষ্ঠা পুনরায় লোড না করে প্লেয়ার শুরু করুন
+                                 // statusDiv.innerHTML = '<div class="status-ready">ভিডিও প্রস্তুত। প্লেয়ার চালু হচ্ছে...</div>';
+                                 // videoData = data.available_videos; // ডেটা আপডেট করুন (যদি /status এটি পাঠায়)
+                                 // const initialVideoId = videoIds[currentVideoIndex];
+                                 // loadVideo(initialVideoId, currentResolution);
+                                 // videoPlayer.play().catch(e => console.warn("Autoplay ব্লক করা হয়েছে:", e));
+                             } else {
+                                 // এখনও প্রসেসিং চলছে
+                                 console.log("এখনও প্রসেসিং চলছে...");
+                             }
+                         })
+                         .catch(error => {
+                             console.error("স্ট্যাটাস চেক করতে ব্যর্থ:", error);
+                             // statusDiv.innerHTML = `<div class="status-error">সার্ভারের অবস্থা জানা যায়নি।</div>`;
+                             // clearInterval(intervalId); // আপনি চাইলে এখানে পোলিং বন্ধ করতে পারেন
+                         });
+                 }, 5000); // প্রতি 5 সেকেন্ডে চেক করুন
+            }
+        }
+
+         // পৃষ্ঠা লোড হওয়ার পরে স্ট্যাটাস চেক করুন
+         window.addEventListener('load', checkServerStatus);
+
     </script>
+
 </body>
 </html>
