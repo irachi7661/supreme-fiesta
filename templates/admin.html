@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Admin Panel</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: auto;
+        }
+        h1, h2 {
+            color: #555;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .status {
+            background-color: #e7f3fe;
+            border-left: 6px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .status p {
+            margin: 0;
+            font-weight: bold;
+            word-wrap: break-word; /* Status text wrap */
+        }
+        form {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #5cb85c;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button:hover {
+            background-color: #4cae4c;
+        }
+        button.danger {
+            background-color: #d9534f;
+        }
+        button.danger:hover {
+            background-color: #c9302c;
+        }
+        button.info {
+            background-color: #5bc0de;
+        }
+        button.info:hover {
+            background-color: #31b0d5;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+        li {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            word-wrap: break-word; /* Long URLs will wrap */
+            font-size: 0.9em; /* Slightly smaller font for list items */
+        }
+        .empty-list {
+            color: #777;
+            font-style: italic;
+        }
+        .flash-messages {
+            padding: 0;
+            margin: 0 0 20px 0;
+            list-style: none;
+        }
+        .flash-messages li {
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+        }
+        .flash-messages .success {
+            color: #3c763d;
+            background-color: #dff0d8;
+            border-color: #d6e9c6;
+        }
+        .flash-messages .error {
+            color: #a94442;
+            background-color: #f2dede;
+            border-color: #ebccd1;
+        }
+        .flash-messages .warning {
+            color: #8a6d3b;
+            background-color: #fcf8e3;
+            border-color: #faebcc;
+        }
+         .flash-messages .info {
+            color: #31708f;
+            background-color: #d9edf7;
+            border-color: #bce8f1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Stream Admin Panel</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <div class="status">
+            <h2>Current Status</h2>
+            <p>{{ current_status }}</p>
+        </div>
+
+        <h2>Add Video to Queue</h2>
+        <form action="{{ url_for('add_video_form') }}" method="POST">
+            <label for="video_url">Video URL:</label>
+            <input type="text" id="video_url" name="video_url" placeholder="Enter video URL (http:// or https://)" required>
+            <button type="submit">Add Video</button>
+        </form>
+
+        <h2>Video Queue</h2>
+        <div class="queue-section">
+            {% if queue %}
+                <ul>
+                    {% for url in queue %}
+                        <li>{{ url }}</li>
+                    {% endfor %}
+                </ul>
+                <form action="{{ url_for('clear_queue_form') }}" method="POST" style="margin-top: 15px; background: none; border: none; padding: 0;">
+                    <button type="submit" class="danger" onclick="return confirm('Are you sure you want to clear the entire queue?');">Clear Entire Queue</button>
+                </form>
+            {% else %}
+                <p class="empty-list">The video queue is currently empty.</p>
+            {% endif %}
+        </div>
+
+        <h2>Played Today</h2>
+        <div class="played-section">
+             {% if played %}
+                <ul>
+                    {% for url in played %}
+                        <li>{{ url }}</li>
+                    {% endfor %}
+                </ul>
+                <form action="{{ url_for('clear_played_form') }}" method="POST" style="margin-top: 15px; background: none; border: none; padding: 0;">
+                    <button type="submit" class="info" onclick="return confirm('Are you sure you want to clear the list of played videos?');">Clear Played List</button>
+                </form>
+            {% else %}
+                <p class="empty-list">No videos have been played from the queue today.</p>
+            {% endif %}
+        </div>
+
+    </div>
+</body>
+</html>
